@@ -146,3 +146,323 @@ let%expect_test "p3" =
 		2.
 		5.
 	|}]
+
+(*
+	!(!(!(!(1)))) || (12/2)
+*)
+let p4: block =
+	[
+		Expr(
+			Op2("||",
+				Op1("!",
+					Op1("!",
+						Op1("!",
+							Op1("!", Num(1.))
+						)
+					)
+				),
+				Op2("/", Num(12), Num(2))
+			)
+		)
+	]
+
+let%expect_test "p4" =
+	runCode p4;
+	[%expect {|
+		1.
+	|}]
+
+(*
+	(a = .4) * 2 || (1.2 / .4)
+*)
+let p5: block =
+	[
+		Expr(
+			Op2("||",
+				Op2("*",
+					Assign("a", Num(.4)),
+					2
+				),
+				Op2("/", Num(1.2), Num(.4))
+			)
+		)
+	]
+
+let%expect_test "p5" =
+	runCode p5;
+	[%expect {|
+		1.
+	|}]
+
+(*
+	z=1;
+	while (z) z--;
+*)
+let p6: block =
+	[
+		Assign("z", Num(1.));
+		While(Var("z"),
+		[
+			Expr(Op1("x--", Var("z")))
+		])
+	]
+
+let%expect_test "p6" =
+	runCode p6;
+	[%expect {|
+		1.
+	|}]
+
+(*
+	y = 0;
+	while (y <= 5) {
+		++y;
+		continue;
+		break;
+		y = 3;
+		y;
+	}
+*)
+let p7: block =
+	[
+		Assign("y", Num(0.));
+		While(
+			Op2("<=", Var("y"), Num(5.)),
+			[
+				Expr(Op1("++x", Var("y")));
+				Continue;
+				Break;
+				Assign("y", Num(3.));
+				Expr(Var("y"))
+			])
+	]
+
+let%expect_test "p7" =
+	runCode p7;
+	[%expect {|
+		1.
+		2.
+		3.
+		4.
+		5.
+		6.
+	|}]
+
+(*
+	for (i=5; i > 0; i--) {
+		5
+	}
+*)
+let p8: block =
+	[
+		For(
+			Assign("i", Num(5.)),
+			Op2(">", Var("i"), Num(0.)),
+			Expr(Op1("x--", Var("i"))),
+			[
+				Expr(Num(5.))
+			]
+		)
+	]
+
+let%expect_test "p8" =
+	runCode p8;
+	[%expect {|
+		5.
+		5.
+		5.
+		5.
+		5.
+	|}]
+
+(*
+	for (i=0; i < 5; i++) {
+		i
+		break;
+		i+2
+	};
+*)
+let p9: block =
+	[
+		For(
+			Assign("i", Num(0.)),
+			Op2("<", Var("i"), Num(5.)),
+			Expr(Op1("x++", Var("i"))),
+			[
+				Expr(Var("i"));
+				Break;
+				Expr(Op2("+", Var("i"), Num(2.)))
+			]
+		)
+	]
+
+let%expect_test "p9" =
+	runCode p9;
+	[%expect {|
+		0.
+	|}]
+
+(*
+	if (0) {
+		2;
+	} else if (1) {
+		3
+	} else 1
+*)
+let p10: block =
+	[
+		If(
+			Expr(Num(0.)),
+			[
+				Expr(Num(2.))
+			],
+			[
+				If(
+					Expr(Num(1.)),
+					[
+						Expr(Num(3.))
+					],
+					[
+						Expr(Num(1.))
+					]
+				)
+			]
+		)
+	]
+
+let%expect_test "p10" =
+	runCode p10;
+	[%expect {|
+		3.
+	|}]
+
+(*
+	if (1) 2
+*)
+let p11: block =
+	[
+		If(
+			Num(1),
+			[
+				Expr(Num(2.))
+			],
+			[
+
+			]
+		)
+	]
+
+let%expect_test "p11" =
+	runCode p11;
+	[%expect {|
+		2.
+	|}]
+
+(*
+	define f(){
+		return (y)
+	}
+
+	define g(y){
+		y = 1 + 4;
+		return (f())
+	}
+	g(2)
+*)
+let p12: block =
+	[
+		FctDef(
+			"f",
+			[],
+			[
+				Return(
+					Expr(Var("y"))
+				)
+			]
+		);
+		FctDef(
+			"g",
+			["y"],
+			[
+				Assign(
+					"y",
+					Op2("+", Num(1.), Num(4.))
+				);
+				Return(
+					Fct("f", [])
+				)
+			]
+		);
+		Expr(Fct("g", [Num(2.)]))
+	]
+
+let%expect_test "p12" =
+	runCode p12;
+	[%expect {|
+		5.
+	|}]
+
+(*
+	define a (x, y) {
+		return (y*x);
+	}
+	a(2,2)
+*)
+let p13: block =
+	[
+		FctDef(
+			"a",
+			["x", "y"],
+			[
+				Return(Op2("*", Var("y"), Var("x")))
+			]
+		);
+		Expr(Fct("a", [Num(2.), Num(2.)]))
+	]
+
+let%expect_test "p13" =
+	runCode p13;
+	[%expect {|
+		4.
+	|}]
+
+(*
+	define f(x) {
+		if (x <= 1) {
+			return (1);
+		} else {
+			return (x * f(x-1));
+		}
+	}
+
+	f(13)
+*)
+let p14: block =
+	[
+		FctDef(
+			"f",
+			["x"],
+			[
+				If(
+					Op2("<=", Var("x"), Num(1.)),
+					[
+						Return(Num(1.))
+					],
+					[
+						Return(
+							Op2("*", Var("x"), Fct("f", [
+								Op2("-", Var(x), Num(1.))
+							]))
+						)
+					]
+				)
+			]
+		);
+		Expr(Fct("f", [Num(13.)]))
+	]
+
+let%expect_test "p14" =
+	runCode p14;
+	[%expect {|
+		6227020800.
+	|}]
