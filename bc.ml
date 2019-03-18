@@ -23,50 +23,160 @@ type statement =
 	| For of statement*expr*statement*statement list
 	| FctDef of string*string list*statement list
 
-type codeReturn =
+type exprResult =
+	| Ok of float
+	| Error of string
+
+type statementResult =
 	| Normal
 	| Brake
 	| Continue
-	| Return of expr (* Maybe not expr *)
+	| Return of expr
+	| Error of string
 
 type block = statement list
 
-type env = N of float (* complete *)
+(* Enviroment and scope *)
+
+module HashMap = Map.Make(String)
+
+type map = HashMap
+
+(* May hold last statmenTresult here *)
+type env = N of float (* {varMap: 'a Map.Make(String).t; fctMap: 'a Map.Make(String).t} *)
 
 type envQueue = env list
 
-(* Functions for running *)
+(* let newScope (q: envQueue): envQueue =
+	let newEnv: env String = {varMap = HashMap.empty; fctMap = HashMap.empty}
+	[]::q *)
 
-let varEval (_v: string) (_q:envQueue): float  = 0.0
+let getVar (v: string) (q: envQueue): float = 0.0
+let setVar (v: string) (f: float) (q: envQueue): float = 0.0
 
-let evalExpr (_e: expr) (_q:envQueue): float  = 0.0
+let runFct (v: string) (a: float list) (q: envQueue): float = 0.0
+let setFct (v: string) (p: string list) (s: block) (q: envQueue): float = 0.0
+
+let newScope (q: envQueue): envQueue = []
+let removeScope (q: envQueue): envQueue = []
+
+(* Expr evaluators *)
+
+let varEval (_v: string) (_q: envQueue): float = 0.0
+
+let op2Eval (s: string) (op0: float) (op1: float): exprResult =
+	match s with
+		| "+" -> Ok(op0 +. op1)
+		| "-" -> Ok(op0 -. op1)
+		| "*" -> Ok(op0 *. op1)
+		| "/" ->
+			if (op1 = 0.) then
+				Error("Divide by zero")
+			else
+				Ok(op0 /. op1)
+		| "^" -> Ok(op0 ** op1)
+		| "<" ->
+			if (op0 < op1) then
+				Ok(1.)
+			else
+				Ok(0.)
+		| "<=" ->
+			if (op0 <= op1) then
+				Ok(1.)
+			else
+				Ok(0.)
+		| ">" ->
+			if (op0 > op1) then
+				Ok(1.)
+			else
+				Ok(0.)
+		| ">=" ->
+			if (op0 >= op1) then
+				Ok(1.)
+			else
+				Ok(0.)
+		| "==" ->
+			if (op0 = op1) then
+				Ok(1.)
+			else
+				Ok(0.)
+		| "!=" ->
+			if (op0 <> op1) then
+				Ok(1.)
+			else
+				Ok(0.)
+		| "&&" ->
+			if (op0 = 0. || op1 = 0.) then
+				Ok(1.)
+			else
+				Ok(0.)
+		| "||" ->
+			if (op0 <> 0. || op1 <> 0.) then
+				Ok(1.)
+			else
+				Ok(0.)
+		| _ -> Error("Invalid operator")
+
+let%test "add" = op2Eval "+" 2. 3. = Ok(5.)
+let%test "subtract" = op2Eval "-" 2. 3. = Ok(-1.)
+let%test "multiply" = op2Eval "*" 2. 3. = Ok(6.)
+let%test "divide" = op2Eval "/" 6. 3. = Ok(2.)
+let%test "divideZero" = op2Eval "/" 2. 0. = Error("Divide by zero")
+let%test "exponent" = op2Eval "^" 2. 2. = Ok(4.)
+let%test "less" = op2Eval "<" 2. 3. = Ok(1.)
+let%test "lessEqual" = op2Eval "<=" 3.1 3. = Ok(0.)
+let%test "greater" = op2Eval ">" 2. 3. = Ok(0.)
+let%test "greaterEqual" = op2Eval ">=" 3. 3. = Ok(1.)
+let%test "equal" = op2Eval "==" 2. 3. = Ok(0.)
+let%test "notEqual" = op2Eval "!=" 2. 3. = Ok(1.)
+let%test "and" = op2Eval "&&" 0. 3. = Ok(0.)
+let%test "or" = op2Eval "||" 2. 0. = Ok(1.)
+let%test "invalid" = op2Eval "**" 2. 3. = Error("Invalid operator")
+
+let rec evalExpr (e: expr) (q: envQueue): exprResult =
+	match e with
+		| Num(f) -> Error("Something")
+		| Var(s) -> Error("Something")
+		| Op1(s, exp) -> Error("Something")
+		| Op2(s, exp0, exp1) -> (
+			match ((evalExpr exp0 q), (evalExpr exp1 q)) with
+				| (Ok(f0), Ok(f1)) -> (op2Eval s f0 f1)
+				| _ -> Error("Something")
+			)
+		| Fct(s, expL) -> Error("Something")
 
 (* Test for expression *)
-let%expect_test "evalNum" =
-	evalExpr Num(10.0) [] |>
-	printf "%F";
-	[%expect {| 10. |}]
+let%test "evalNum" =
+	evalExpr (Num 10.0) [] = Ok(10.)
 
-let runCode (_code: block): unit =
-	evalCode _code []
+(* Stament evaluators *)
 
-let evalCode (_code: block) (_q:envQueue): unit =
+let evalCode (_code: block) (_q:envQueue): statementResult =
 	(* crate new environment *)
-	(* user fold_left  *)
+	(* user fold_left on evalStament and q, outputs q *)
 	(* pop the local environment *)
-	print_endline "Not implemented"
+	print_endline "Not implemented";
+	Error("Not implemented")
 
 let evalStatement (s: statement) (q:envQueue): envQueue =
+	(* Could have a check here that finds breaks, returns, etc, that just returns the state *)
 	match s with
-		| Assign(_v, _e) -> (* eval e and store in v *) q
-		| If(e, codeT, codeF) ->
-			let cond = evalExpr e q in
-				if(cond>0.0) then
+	| Assign(_v, _e) -> (* eval e and store in v *) q
+	| If(e, codeT, codeF) ->(
+			match (evalExpr e q) with
+			| Ok(f) -> (
+				if (f > 0.0) then
 					evalCode codeT q
 				else
 					evalCode codeF q
-			;q
-		| _ -> q (*ignore *)
+				;q)
+			| Error(s) -> Error(s)
+		)
+	| _ -> q (*ignore *)
+
+	let runCode (code: block): unit =
+		(* create global enviroment *)
+		evalCode code [];
 
 (* Intergration testing ---------------------------------------------------- *)
 
@@ -77,7 +187,7 @@ let evalStatement (s: statement) (q:envQueue): envQueue =
 let p1: block = [
 		Assign("v", Num(1.0));
 		Expr(Var("v"))
-]
+];
 
 let%expect_test "p1" =
 	runCode p1;
@@ -101,7 +211,7 @@ let p2: block = [
 		[For(
 			Assign("i", Num(2.0)),
 			Op2("<", Var("i"), Num(10.0)),
-			Expr(Op1("++a", Var("i"))),
+			Expr(Op1("x++", Var("i"))),
 			[
 				Assign("v", Op2("*", Var("v"), Var("i")))
 			]
@@ -114,6 +224,7 @@ let%expect_test "p2" =
 	runCode p2;
 	[%expect {| 3628800. |}]
 
+(* TODO: Broken? *)
 (*  Fibbonaci sequence
 	define f(x) {
 		if (x<1.0) then
@@ -161,7 +272,7 @@ let p4: block =
 						)
 					)
 				),
-				Op2("/", Num(12), Num(2))
+				Op2("/", Num(12.), Num(2.))
 			)
 		)
 	]
@@ -177,13 +288,11 @@ let%expect_test "p4" =
 *)
 let p5: block =
 	[
+		Assign("a", Num(0.4));
 		Expr(
 			Op2("||",
-				Op2("*",
-					Assign("a", Num(.4)),
-					2
-				),
-				Op2("/", Num(1.2), Num(.4))
+				Op2("*", Var("a"), Num(2.)),
+				Op2("/", Num(1.2), Num(0.4))
 			)
 		)
 	]
@@ -312,13 +421,13 @@ let%expect_test "p9" =
 let p10: block =
 	[
 		If(
-			Expr(Num(0.)),
+			Num(0.),
 			[
 				Expr(Num(2.))
 			],
 			[
 				If(
-					Expr(Num(1.)),
+					Num(1.),
 					[
 						Expr(Num(3.))
 					],
@@ -342,7 +451,7 @@ let%expect_test "p10" =
 let p11: block =
 	[
 		If(
-			Num(1),
+			Num(1.),
 			[
 				Expr(Num(2.))
 			],
@@ -376,7 +485,7 @@ let p12: block =
 			[],
 			[
 				Return(
-					Expr(Var("y"))
+					Var("y")
 				)
 			]
 		);
@@ -412,12 +521,12 @@ let p13: block =
 	[
 		FctDef(
 			"a",
-			["x", "y"],
+			["x"; "y"],
 			[
 				Return(Op2("*", Var("y"), Var("x")))
 			]
 		);
-		Expr(Fct("a", [Num(2.), Num(2.)]))
+		Expr(Fct("a", [Num(2.); Num(2.)]))
 	]
 
 let%expect_test "p13" =
@@ -451,7 +560,7 @@ let p14: block =
 					[
 						Return(
 							Op2("*", Var("x"), Fct("f", [
-								Op2("-", Var(x), Num(1.))
+								Op2("-", Var("x"), Num(1.))
 							]))
 						)
 					]

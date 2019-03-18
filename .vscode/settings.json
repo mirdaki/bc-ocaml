@@ -1,0 +1,40 @@
+{
+	"spellright.language": [
+		"en_US"
+	],
+	"spellright.documentTypes": [
+		"antlr4",
+		"c",
+		"csharp",
+		"css",
+		"html",
+		"java",
+		"python",
+		"scss",
+		"sh",
+		"yml",
+		"cpp",
+		"g4",
+		"go",
+		"javascript",
+		"javascriptreact",
+		"json",
+		"latex",
+		"markdown",
+		"php",
+		"plaintext",
+		"text",
+		"typescript",
+		"typescriptreact",
+		"shellscript",
+		"yml",
+		"sql",
+		"rs",
+		"ocaml"
+	],
+	"spellright.parserByClass": {
+		"ocaml": {
+			"parser": "code"
+		}
+	}
+}
