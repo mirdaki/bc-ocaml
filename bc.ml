@@ -43,7 +43,7 @@ let evalExpr (_e: expr) (_q:envQueue): float  = 0.0
 
 (* Test for expression *)
 let%expect_test "evalNum" =
-	evalExpr (Num 10.0) [] |>
+	evalExpr Num(10.0) [] |>
 	printf "%F";
 	[%expect {| 10. |}]
 
