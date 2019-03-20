@@ -1,3 +1,4 @@
+open Base
 open Core
 
 (* AST description *)
@@ -27,7 +28,7 @@ type block = statement list
 
 (* Enviroment and scope *)
 
-module HashMap = Map.Make(String)
+(* module HashMap = Map.Make(String) *)
 
 (* type map = HashMap *)
 
@@ -41,7 +42,16 @@ module HashMap = Map.Make(String)
 
 (* (Core.String.t, 'a, Core.String.comparator_witness) Core.Map.t, *)
 
-type env = {varMap: (Core.String.t, float, HashMap.Key.comparator_witness) Core.Map.t; fctMap: (Core.String.t, float, HashMap.Key.comparator_witness) Core.Map.t}
+type storedFct = {parameters: string list; body: statement list}
+
+type env = {
+	mutable varMap: ((string, float, String.comparator_witness) Map.t);
+	mutable fctMap: ((string, storedFct, String.comparator_witness) Map.t)
+	(* varMap: (Core.String.t, float, Core.String.comparator_witness) Core.Map.t;
+	fctMap: (Core.String.t, storedFct, Core.String.comparator_witness) Core.Map.t *)
+}
+
+(* type env = ((Core.String.t, float, Core.String.comparator_witness) Core.Map.t)*((Core.String.t, storedFct, Core.String.comparator_witness) Core.Map.t) *)
 
 type envQueue = env list
 
@@ -49,215 +59,302 @@ type envQueue = env list
 	let newEnv: env String = {varMap = HashMap.empty; fctMap = HashMap.empty}
 	[]::q *)
 
-let getVar (v: string) (q: envQueue): float = 0.0
-let setVar (v: string) (f: float) (q: envQueue): envQueue = q
+let newScope (q: envQueue): envQueue =
+	{varMap = Map.empty (module String); fctMap = Map.empty (module String)}::q
 
-let runFct (v: string) (a: float list) (q: envQueue): float = 0.0
-let setFct (v: string) (p: string list) (s: block) (q: envQueue): envQueue = q
+let removeScope (q: envQueue): envQueue =
+	match q with
+		| _hd::tl -> tl
+		| _ -> q
+;;
 
-let newScope (q: envQueue): envQueue = {varMap = HashMap.empty; fctMap = HashMap.empty}::q
+(* Assumes q has at least one valid enviroment *)
+let getVar (v: string) (q: envQueue): float =
+	(* Check current scope *)
+	let currentScope = List.hd_exn q in
+	match Map.find currentScope.varMap v with
+		| Some(f) -> f
+		| None -> (
+			(* Check global scope *)
+			let globalScope = List.last_exn q in
+			match Map.find globalScope.varMap v with
+				| Some(f) -> f
+				(* Otherwise 0 *)
+				| None -> 0.
+		)
+;;
 
-let removeScope (q: envQueue): envQueue = q
+let setVar (v: string) (f: float) (q: envQueue): envQueue =
+	(* Add to current scope *)
+	let currentScope = List.hd_exn q in
+	let newMap = Map.change currentScope.varMap v ~f:(fun current -> Some (f)) in
+	let newScope = {varMap = newMap; fctMap = currentScope.fctMap} in
+	newScope::(List.tl_exn q)
+;;
+
+let runFct (v: string) (a: float list) (q: envQueue): float =
+	(* Check current scope *)
+	let fct =
+		let currentScope = List.hd_exn q in
+		match Map.find currentScope.fctMap v with
+			| Some(f) -> f
+			| None -> (
+				(* Check global scope *)
+				let globalScope = List.last_exn q in
+				match Map.find globalScope.fctMap v with
+					| Some(f) -> f
+					(* Otherwise 0 *)
+					| None -> 0. (* Error! *)
+			) in
+
+;;
+
+
+let setFct (s: string) (p: string list) (b: block) (q: envQueue): envQueue = q
+
 
 (* Results *)
-type exprResult =
-	| Ok of float
-	| Error of string
+
+(* For simplicity, expr will not have error checking (just return float) *)
 
 type statementResult =
 	| Normal of envQueue
-	| Brake
-	| Continue
-	| Return of expr
-	| Expr of exprResult
-	| Error of string
+	| Break of envQueue
+	| Continue of envQueue
+	| Return of float
+	(* | Error of string *)
 
 (* Expr evaluators *)
 
-let evalVar (v: string) (q: envQueue): exprResult = Ok(getVar v q)
-
-(* let op1VarEval (s: string) (v: string) (q: envQueue): exprResult =
+let op1VarEval (s: string) (v: string) (q: envQueue): float*envQueue =
 	let f = (getVar v q) in
-	match s with
-		| "++x" ->
-			let r = setVar v (f +. 1.) q in
-			Ok((f +. 1.), r)
-		| "--x" -> (
-			setVar v (f -. 1.) q;
-			Ok(f -. 1.)
-		)
-		| "x++" -> (
-			setVar v (f +. 1.) q;
-			Ok(f)
-		)
-		| "x--" ->
-			setVar v (f -. 1.) q;
-			Ok(f)
-		| "!" ->
-			if (f = 0.) then
-				Ok(1.)
-			else
-				Ok(0.)
-		| _ -> Error("Invalid operator") *)
-
-(* let%test "preInc" = let q: (newScope []) in op1VarEval "++x" "s" q = Ok(1., (setVar "s" 1. q))
-let%test "preDec" = op1VarEval "--x" "s" (newScope []) = Ok(-1.)
-let%test "postInc" = op1VarEval "x++" "s" (newScope []) = Ok(0.)
-let%test "postDec" = op1VarEval "x--" "s" (newScope []) = Ok(0.)
-let%test "notVar" = op1VarEval "!" "s" (newScope []) = Ok(1.)
-let%test "invalid" = op1VarEval "+" "s" (newScope []) = Error("Invalid operator") *)
-
-let op2Eval (s: string) (op0: float) (op1: float): exprResult =
-	match s with
-		| "+" -> Ok(op0 +. op1)
-		| "-" -> Ok(op0 -. op1)
-		| "*" -> Ok(op0 *. op1)
-		| "/" ->
-			if (op1 = 0.) then
-				Error("Divide by zero")
-			else
-				Ok(op0 /. op1)
-		| "^" -> Ok(op0 ** op1)
-		| "<" ->
-			if (op0 < op1) then
-				Ok(1.)
-			else
-				Ok(0.)
-		| "<=" ->
-			if (op0 <= op1) then
-				Ok(1.)
-			else
-				Ok(0.)
-		| ">" ->
-			if (op0 > op1) then
-				Ok(1.)
-			else
-				Ok(0.)
-		| ">=" ->
-			if (op0 >= op1) then
-				Ok(1.)
-			else
-				Ok(0.)
-		| "==" ->
-			if (op0 = op1) then
-				Ok(1.)
-			else
-				Ok(0.)
-		| "!=" ->
-			if (op0 <> op1) then
-				Ok(1.)
-			else
-				Ok(0.)
-		| "&&" ->
-			if (op0 = 0. || op1 = 0.) then
-				Ok(0.)
-			else
-				Ok(1.)
-		| "||" ->
-			if (op0 <> 0. || op1 <> 0.) then
-				Ok(1.)
-			else
-				Ok(0.)
-		| _ -> Error("Invalid operator")
+		match s with
+			| "++x" ->
+				let q = setVar v (f +. 1.) q in
+					((f +. 1.), q)
+			| "--x" ->
+				let q = setVar v (f -. 1.) q in
+					((f -. 1.), q)
+			| "x++" ->
+				let q = setVar v (f +. 1.) q in
+					(f, q)
+			| "x--" ->
+				let q = setVar v (f -. 1.) q in
+					(f, q)
+			| "!" ->
+				if (f =. 0.) then
+					(1., q)
+				else
+					(0., q)
+			| _ -> (0., q) (* Some sort of error *)
 ;;
 
-let%test "add" = op2Eval "+" 2. 3. = Ok(5.)
-let%test "subtract" = op2Eval "-" 2. 3. = Ok(-1.)
-let%test "multiply" = op2Eval "*" 2. 3. = Ok(6.)
-let%test "divide" = op2Eval "/" 6. 3. = Ok(2.)
-let%test "divideZero" = op2Eval "/" 2. 0. = Error("Divide by zero")
-let%test "exponent" = op2Eval "^" 2. 2. = Ok(4.)
-let%test "less" = op2Eval "<" 2. 3. = Ok(1.)
-let%test "lessEqual" = op2Eval "<=" 3.1 3. = Ok(0.)
-let%test "greater" = op2Eval ">" 2. 3. = Ok(0.)
-let%test "greaterEqual" = op2Eval ">=" 3. 3. = Ok(1.)
-let%test "equal" = op2Eval "==" 2. 3. = Ok(0.)
-let%test "notEqual" = op2Eval "!=" 2. 3. = Ok(1.)
-let%test "and" = op2Eval "&&" 0. 3. = Ok(0.)
-let%test "or" = op2Eval "||" 2. 0. = Ok(1.)
-let%test "invalid" = op2Eval "**" 2. 3. = Error("Invalid operator")
+let%test "preInc" = op1VarEval "++x" "s" [{varMap = Map.empty (module String); fctMap = Map.empty (module String)}] = (1., [])
+let%test "preDec" = op1VarEval "--x" "s" [{varMap = Map.empty (module String); fctMap = Map.empty (module String)}] = (-1., [])
+let%test "postInc" = op1VarEval "x++" "s" [{varMap = Map.empty (module String); fctMap = Map.empty (module String)}] = (0., [])
+let%test "postDec" = op1VarEval "x--" "s" [{varMap = Map.empty (module String); fctMap = Map.empty (module String)}] = (0., [])
+let%test "notVar" = op1VarEval "!" "s" [{varMap = Map.empty (module String); fctMap = Map.empty (module String)}] = (1., [])
+(* let%test "invalid" = op1VarEval "+" "s" (newScope []) = Error("Invalid operator") *)
 
-let rec evalExpr (e: expr) (q: envQueue): statementResult =
+let op2Eval (s: string) (op0: float) (op1: float): float =
+	match s with
+		| "+" -> op0 +. op1
+		| "-" -> op0 -. op1
+		| "*" -> op0 *. op1
+		| "/" ->
+			if (op1 = 0.) then
+				0. (* Some sort of divide by zero error *)
+			else
+				op0 /. op1
+		| "^" -> op0 ** op1
+		| "<" ->
+			if (op0 < op1) then
+				1.
+			else
+				0.
+		| "<=" ->
+			if (op0 <= op1) then
+				1.
+			else
+				0.
+		| ">" ->
+			if (op0 > op1) then
+				1.
+			else
+				0.
+		| ">=" ->
+			if (op0 >= op1) then
+				1.
+			else
+				0.
+		| "==" ->
+			if (op0 = op1) then
+				1.
+			else
+				0.
+		| "!=" ->
+			if (op0 <> op1) then
+				1.
+			else
+				0.
+		| "&&" ->
+			if (op0 = 0. || op1 = 0.) then
+				0.
+			else
+				1.
+		| "||" ->
+			if (op0 <> 0. || op1 <> 0.) then
+				1.
+			else
+				0.
+		| _ -> 0. (* Some sort of error *)
+;;
+
+let%test "add" = op2Eval "+" 2. 3. = 5.
+let%test "subtract" = op2Eval "-" 2. 3. = -1.
+let%test "multiply" = op2Eval "*" 2. 3. = 6.
+let%test "divide" = op2Eval "/" 6. 3. = 2.
+(* let%test "divideZero" = op2Eval "/" 2. 0. = Error("Divide by zero") *)
+let%test "exponent" = op2Eval "^" 2. 2. = 4.
+let%test "less" = op2Eval "<" 2. 3. = 1.
+let%test "lessEqual" = op2Eval "<=" 3.1 3. = 0.
+let%test "greater" = op2Eval ">" 2. 3. = 0.
+let%test "greaterEqual" = op2Eval ">=" 3. 3. = 1.
+let%test "equal" = op2Eval "==" 2. 3. = 0.
+let%test "notEqual" = op2Eval "!=" 2. 3. = 1.
+let%test "and" = op2Eval "&&" 0. 3. = 0.
+let%test "or" = op2Eval "||" 2. 0. = 1.
+(* let%test "invalid" = op2Eval "**" 2. 3. = Error("Invalid operator") *)
+
+let rec evalExpr (e: expr) (q: envQueue): float*envQueue =
 	match e with
-		| Num(f) -> Ok(f)
-		| Var(s) -> evalVar s q
+		| Num(f) -> (f, q)
+		| Var(v) -> ((getVar v q), q)
 		| Op1(s, exp) -> (
 			match exp with
-				| Var(v) -> (
-					let f = (getVar v q) in
-						match s with
-							| "++x" ->
-								let r = setVar v (f +. 1.) q in
-								Ok(f +. 1.) (* Must return r *)
-							| "--x" ->
-								let r =  setVar v (f -. 1.) q in
-								Ok(f -. 1.) (* Must return r *)
-							| "x++" ->
-								let r =  setVar v (f +. 1.) q in
-								Ok(f) (* Must return r *)
-							| "x--" ->
-								let r =  setVar v (f -. 1.) q in
-								Ok(f) (* Must return r *)
-							| "!" ->
-								if (f = 0.) then
-									Ok(1.)
-								else
-									Ok(0.)
-							| _ -> Error("Invalid operator")
-				)
+				| Var(v) -> op1VarEval s v q
 				| Num(f) ->
 					if (f = 0.) then
-						Ok(1.)
+						(1., q)
 					else
-						Ok(0.)
-				| _ -> Error("Invalid operator")
+						(0., q)
+				| _ -> evalExpr exp q
 		)
-		| Op2(s, exp0, exp1) -> (
-			match ((evalExpr exp0 q), (evalExpr exp1 q)) with
-				| (Ok(f0), Ok(f1)) -> (op2Eval s f0 f1)
-				| _ -> Error("Invalid operator")
-			)
-		| Fct(s, expL) -> Error("Invalid operator")
+		| Op2(s, exp0, exp1) ->
+				let ((f0, _), (f1, _)) = ((evalExpr exp0 q), (evalExpr exp1 q)) in
+					(op2Eval s f0 f1, q)
+		| Fct(s, expL) -> (0., q)
+				(* let t = List.map (fun x -> (evalExpr x q)) expL in
+					let fL = List.map fst t in (runFct s fL q, q) *)
+;;
 
+(* let intermediateEval (eL: expr list) (q: envQueue): float*envQueue list =
+	List.map (fun x -> evalExpr x q: expr -> float*envQueue) expL
+;; *)
+
+(* let t = List.map (fun x -> evalExpr x q: expr -> float*envQueue) expL in
+					let fL = List.map fst t in (runFct s fL q, q) *)
+
+(* let s = "v"
+let expL: expr list = []
+let q: envQueue = [] *)
+
+(* let tempFunc (s:string) (expL: expr list) (q: envQueue): float*envQueue =
+let t: float*envQueue list = List.map (fun (x: expr): float*envQueue -> evalExpr x q) expL in
+	let fL: float list = List.map (fun (x: float*envQueue): float -> let ((f: float), _) = x in f) t in
+		(runFct s fL q, q)
+;; *)
+
+(* let w = [(1., 5), (2., 6)];
+let getFloat (tup: float*int): float =
+	let (w, _) = tup in w
+;;
+w(0) *)
+
+(* let doMath (x: expr) (q: envQueue): float*envQueue =
+	evalExpr x q
+;;
+
+let getFloat (tup: float*int): float =
+	let (w, _) = tup in w
+;;
+ *)
 (* Test for expression *)
-let%test "evalNum" =
-	evalExpr (Num 10.0) [] = Ok(10.)
+
+let%test "evalNum" = evalExpr (Num 10.0) [] = (10., [])
 
 (* Stament evaluators *)
 
-let evalCode (_code: block) (_q:envQueue): statementResult =
-	(* crate new environment *)
-	(* user fold_left on evalStament and q, outputs q *)
-	(* pop the local environment *)
-	print_endline "Not implemented";
-	Error("Not implemented")
+(* Try recursively calling a function for this instea dof fold_left *)
+let evalCode (code: block) (q: envQueue): statementResult =
+	(* List.fold_left (
+		fun r s ->
+			match r with
+				| Normal(q) -> evalStatement s q
+				| Break -> Break
+				| Continue -> Continue
+				| Return(f) -> Return(f)
+		) (Normal q) code *) (Normal q)
+;;
 
-let evalStatement (s: statement) (q:envQueue): envQueue =
+(* Make a new scope version of eval code for function calls OR just do it on a func call*)
+(* let evalCodeNewScope (code: block) (q: envQueue): statementResult =
+	newScope q |>
+	evalCode code |>(* Fix probbaly *)
+	removeScope
+;; *)
+
+
+let rec loop (e: expr) (code: block) (post: statement) (q: envQueue): statementResult =
+	let (f, q) = evalExpr e q in
+		if (f <> 0.) then
+			let r  = evalCode code q in
+				match r with
+					| Normal(q) | Continue(q) -> (
+							let r = evalCode [post] q in
+								match r with
+									| Normal(q) | Continue(q) -> loop e code post q
+									| Break(q) -> Break(q)
+									| Return(f) -> Break(q) (* This is an error? *)
+						)
+					| Break(q) -> Break(q)
+					| Return(f) -> Break(q) (* This is an error? *)
+		else
+			Normal(q)
+;;
+
+let evalStatement (s: statement) (q: envQueue): statementResult =
 	(* Could have a check here that finds breaks, returns, etc, that just returns the state *)
 	match s with
-	| Assign(v, e) -> (
-		let f = evalExpr e q in
-			match f with
-				| Expr(e) -> setVar v q f (* This needs to work only if exprResult doesn't have errors *)
-				|
-	)
-	| Return(e) -> q
-	| Break -> q
-	| Continue -> q
-	| Expr(e) -> evalExpr e q
-	| If(e, codeT, codeF) ->(
-			match (evalExpr e q) with
-			| Ok(f) -> (
-				(* if (f > 0.0) then
-					evalCode codeT q
-				else
-					evalCode codeF q
-				; *)q)
-			| Error(s) -> (* Error(s) *) q
-		)
-	| While(e,b) -> q
-	| For(a, e, i, b) -> q
-	| FctDef(s, sL, b) -> q
+		| Assign(v, e) ->
+				let (f, q) = evalExpr e q in
+					let q = setVar v f q in
+						Normal(q)
+		| Return(e) ->
+				let (f, q) = evalExpr e q in Return(f)
+		| Break -> Break(q)
+		| Continue -> Continue(q)
+		| Expr(e) ->
+				let (f, q) = evalExpr e q in
+					print_float f;
+					print_newline ();
+					Normal(q)
+		| If(e, codeT, codeF) ->
+				let (f, q) = evalExpr e q in
+					if (f <> 0.) then
+						evalCode codeT q
+					else
+						evalCode codeF q
+		| While(e, b) -> loop e b Continue q
+		| For(a, e, i, b) -> (
+				let r = evalCode [a] q in
+				match r with
+					| Normal(q) | Continue(q) -> loop e b i q
+					| Break(q) -> Break(q)
+					| Return(f) -> Break(q) (* Error? *)
+			)
+		| FctDef(s, p, b) -> let q = setFct s p b q in Normal(q)
+;;
 
 	let runCode (code: block): unit =
 		(* evalCode code []; *)
@@ -310,10 +407,9 @@ let%expect_test "p2" =
 	runCode p2;
 	[%expect {| 3628800. |}]
 
-(* TODO: Broken? *)
-(*  Fibbonaci sequence
+(* Fibonacci sequence
 	define f(x) {
-		if (x<1.0) then
+		if (x<2.0) then
 			return (1.0)
 		else
 			return (f(x-1)+f(x-2))
@@ -322,26 +418,27 @@ let%expect_test "p2" =
 	f(3)
 	f(5)
 *)
+
 let p3: block =
 	[
 		FctDef("f", ["x"], [
 			If(
-				Op2("<", Var("x"), Num(1.0)),
+				Op2("<", Var("x"), Num(2.0)),
 				[Return(Num(1.0))],
 				[Return(Op2("+",
 					Fct("f", [Op2("-", Var("x"), Num(1.0))]),
-					Fct("f", [Op2("-", Var("x"), Num(1.0))])
+					Fct("f", [Op2("-", Var("x"), Num(2.0))])
 				))])
 		]);
 		Expr(Fct("f", [Num(3.0)]));
-		Expr(Fct("f", [Num(5.0)]))
+		Expr(Fct("f", [Num(5.0)]));
 	]
 
 let%expect_test "p3" =
 	runCode p3;
 	[%expect {|
-		2.
-		5.
+		3.
+		8.
 	|}]
 
 (*
