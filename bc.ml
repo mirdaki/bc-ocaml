@@ -21,7 +21,7 @@ type statement =
 	| Expr of expr
 	| If of expr*statement list*statement list
 	| While of expr*statement list
-	| For of statement*expr*statement*statement list
+	| For of statement*expr*expr*statement list
 	| FctDef of string*string list*statement list
 
 type block = statement list
@@ -67,7 +67,7 @@ let setVar (v: string) (f: float) (q: envQueue): envQueue =
 	(* Add to current scope *)
 	let currentScope = List.hd_exn q in
 	(* TODO Change may not work, check then add *)
-	let newMap = Map.change currentScope.varMap v ~f:(fun current -> Some(f)) in
+	let newMap = Map.change currentScope.varMap v ~f:(fun _x -> Some(f)) in
 	let newScope = {varMap = newMap; fctMap = currentScope.fctMap} in
 	newScope::(List.tl_exn q)
 ;;
@@ -76,7 +76,7 @@ let setFct (s: string) (p: string list) (b: block) (q: envQueue): envQueue =
 	let newFct = {parameters = p; body = b} in
 	let currentScope = List.hd_exn q in
 	(* TODO Change may not work, check then add *)
-	let newMap = Map.change currentScope.fctMap s ~f:(fun current -> Some(newFct)) in
+	let newMap = Map.change currentScope.fctMap s ~f:(fun _x -> Some(newFct)) in
 	let newScope = {varMap = currentScope.varMap; fctMap = newMap} in
 	newScope::(List.tl_exn q)
 ;;
@@ -213,14 +213,6 @@ and
 
 evalCode (code: block) (q: envQueue): statementResult =
 	evalCodeInternal code (Normal(q))
-	(* List.fold_left
-	~f:(fun r s ->
-			match r with
-				| Normal(q) -> evalStatement s q
-				| Break(q) -> Break(q)
-				| Continue(q) -> Continue(q)
-				| Return(f) -> Return(f)
-		) (Normal q) code *) (* (Normal q) *)
 
 and
 
@@ -230,7 +222,7 @@ addParamArgs (parameters: string list) (args: float list) (q: envQueue): envQueu
 		| _ -> let r = evalCode [Assign((List.hd_exn parameters), Num((List.hd_exn args)))] q in
 			match r with
 				| Normal(q) | Continue(q) | Break(q) -> addParamArgs (List.tl_exn parameters) (List.tl_exn args) q
-				| Return(f) -> q (* Error? *)
+				| Return(_f) -> q (* Error? *)
 
 and
 
@@ -258,20 +250,20 @@ runFct (v: string) (args: float list) (q: envQueue): float*envQueue =
 
 and
 
-loop (e: expr) (code: block) (post: statement) (q: envQueue): statementResult =
+loop (e: expr) (code: block) (post: expr) (q: envQueue): statementResult =
 	let (f, q) = evalExpr e q in
 		if (f <> 0.) then
 			let r  = evalCode code q in
 				match r with
 					| Normal(q) | Continue(q) -> (
-							let r = evalCode [post] q in
-								match r with
+							let (_f, q) = evalExpr post q in loop e code post q
+								(*match r with
 									| Normal(q) | Continue(q) -> loop e code post q
 									| Break(q) -> Break(q)
-									| Return(f) -> Break(q) (* Error? *)
+									| Return(_f) -> Break(q) (* Error? *) *)
 						)
 					| Break(q) -> Break(q)
-					| Return(f) -> Break(q) (* Error? *)
+					| Return(_f) -> Break(q) (* Error? *)
 		else
 			Normal(q)
 
@@ -285,7 +277,7 @@ evalStatement (s: statement) (q: envQueue): statementResult =
 					let q = setVar v f q in
 						Normal(q)
 		| Return(e) ->
-				let (f, q) = evalExpr e q in Return(f)
+				let (f, _q) = evalExpr e q in Return(f)
 		| Break -> Break(q)
 		| Continue -> Continue(q)
 		| Expr(e) ->
@@ -299,13 +291,13 @@ evalStatement (s: statement) (q: envQueue): statementResult =
 						evalCode codeT q
 					else
 						evalCode codeF q
-		| While(e, b) -> loop e b Continue q
+| While(e, b) -> loop e b (Num(0.)) q
 		| For(a, e, i, b) -> (
 				let r = evalCode [a] q in
 				match r with
 					| Normal(q) | Continue(q) -> loop e b i q
 					| Break(q) -> Break(q)
-					| Return(f) -> Break(q) (* Error? *)
+					| Return(_f) -> Break(q) (* Error? *)
 			)
 		| FctDef(s, p, b) -> let q = setFct s p b q in Normal(q)
 ;;
@@ -314,7 +306,7 @@ evalStatement (s: statement) (q: envQueue): statementResult =
 		ignore (evalCode code (newScope []))
 	;;
 
-(* Test for expression *)
+(* Test for expressions *)
 
 (* op1VarEval Tests *)
 
@@ -361,6 +353,8 @@ let%expect_test "p1" =
 	runCode p1;
 	[%expect {| 1. |}]
 
+
+(* TODO: It appears the for loop doesn't loop the last time *)
 (*
 	v = 1.0;
 	if (v>10.0) then
@@ -379,7 +373,7 @@ let p2: block = [
 		[For(
 			Assign("i", Num(2.0)),
 			Op2("<", Var("i"), Num(10.0)),
-			Expr(Op1("x++", Var("i"))),
+			Op1("x++", Var("i")),
 			[
 				Assign("v", Op2("*", Var("v"), Var("i")))
 			]
@@ -392,6 +386,7 @@ let%expect_test "p2" =
 	runCode p2;
 	[%expect {| 3628800. |}]
 
+(* TODO: Disect what's wrng *)
 (* Fibonacci sequence
 	define f(x) {
 		if (x<2.0) then
@@ -535,7 +530,7 @@ let p8: block =
 		For(
 			Assign("i", Num(5.)),
 			Op2(">", Var("i"), Num(0.)),
-			Expr(Op1("x--", Var("i"))),
+			Op1("x--", Var("i")),
 			[
 				Expr(Num(5.))
 			]
@@ -564,7 +559,7 @@ let p9: block =
 		For(
 			Assign("i", Num(0.)),
 			Op2("<", Var("i"), Num(5.)),
-			Expr(Op1("x++", Var("i"))),
+			Op1("x++", Var("i")),
 			[
 				Expr(Var("i"));
 				Break;
@@ -635,6 +630,7 @@ let%expect_test "p11" =
 		2.
 	|}]
 
+(* TODO: Not sure where after the 5 is printed the 0 is comming from *)
 (*
 	define f(){
 		return (y)
@@ -651,23 +647,14 @@ let p12: block =
 		FctDef(
 			"f",
 			[],
-			[
-				Return(
-					Var("y")
-				)
-			]
+			[Return(Var("y"))]
 		);
 		FctDef(
 			"g",
 			["y"],
 			[
-				Assign(
-					"y",
-					Op2("+", Num(1.), Num(4.))
-				);
-				Return(
-					Fct("f", [])
-				)
+				Assign("y", Op2("+", Num(1.), Num(4.)));
+				Return(Fct("f", []))
 			]
 		);
 		Expr(Fct("g", [Num(2.)]))
